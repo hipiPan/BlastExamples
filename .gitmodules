@@ -1,3 +1,6 @@
 [submodule "Blast"]
 	path = Blast
 	url = https://github.com/hipiPan/Blast.git
+[submodule "External/glfw"]
+	path = External/glfw
+	url = https://github.com/glfw/glfw.git
