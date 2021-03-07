@@ -9,3 +9,7 @@ target_link_libraries(BlastExamples PUBLIC Blast)
 
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/External/glfw EXCLUDE_FROM_ALL)
 target_link_libraries(BlastExamples PRIVATE glfw)
+
+add_library(stb INTERFACE)
+target_include_directories(stb INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/External/stb)
+target_link_libraries(BlastExamples PRIVATE stb)

@@ -12,6 +12,8 @@
 #include <Gfx/Vulkan/VulkanContext.h>
 #include <Utility/ShaderCompiler.h>
 #include <Utility/VulkanShaderCompiler.h>
+#define STB_IMAGE_IMPLEMENTATION
+#include <stb_image.h>
 #include <iostream>
 #include <fstream>
 #include <sstream>
@@ -32,6 +34,7 @@ Blast::GfxRootSignature* rootSignature = nullptr;
 Blast::GfxGraphicsPipeline* pipeline = nullptr;
 Blast::GfxBuffer* meshIndexBuffer = nullptr;
 Blast::GfxBuffer* meshVertexBuffer = nullptr;
+Blast::GfxTexture* texture = nullptr;
 uint32_t frameIndex = 0;
 uint32_t imageCount = 0;
 
@@ -56,14 +59,16 @@ unsigned int indices[] = {
 };
 
 void shutdown() {
+    if (texture) {
+        delete texture;
+    }
+
     if (meshIndexBuffer) {
         delete meshIndexBuffer;
-        meshIndexBuffer = nullptr;
     }
 
     if (meshVertexBuffer) {
         delete meshVertexBuffer;
-        meshVertexBuffer = nullptr;
     }
 
     if (vertShader) {
@@ -84,27 +89,22 @@ void shutdown() {
 
     if (cmds) {
         delete[] cmds;
-        cmds = nullptr;
     }
     
     if (cmdPool) {
         delete cmdPool;
-        cmdPool = nullptr;
     }
     
     if (renderCompleteFences) {
         delete[] renderCompleteFences;
-        renderCompleteFences = nullptr;
     }
 
     if (imageAcquiredSemaphores) {
         delete[] imageAcquiredSemaphores;
-        imageAcquiredSemaphores = nullptr;
     }
 
     if (renderCompleteSemaphores) {
         delete[] renderCompleteSemaphores;
-        renderCompleteSemaphores = nullptr;
     }
 
     if (renderPasses) {
@@ -113,17 +113,14 @@ void shutdown() {
 
     if (swapchain) {
         delete swapchain;
-        swapchain = nullptr;
     }
 
     if (context) {
         delete context;
-        context = nullptr;
     }
 
     if (shaderCompiler) {
         delete shaderCompiler;
-        shaderCompiler = nullptr;
     }
 }
 
@@ -131,19 +128,6 @@ int main() {
     shaderCompiler = new Blast::VulkanShaderCompiler();
 
     context = new Blast::VulkanContext();
-
-    Blast::GfxBufferDesc bufferDesc;
-    bufferDesc.size = sizeof(Vertex) * 4;
-    bufferDesc.type = Blast::RESOURCE_TYPE_VERTEX_BUFFER;
-    bufferDesc.usage = Blast::RESOURCE_USAGE_CPU_TO_GPU;
-    meshVertexBuffer = context->createBuffer(bufferDesc);
-    meshVertexBuffer->writeData(0,sizeof(vertices), vertices);
-
-    bufferDesc.size = sizeof(unsigned int) * 6;
-    bufferDesc.type = Blast::RESOURCE_TYPE_INDEX_BUFFER;
-    bufferDesc.usage = Blast::RESOURCE_USAGE_CPU_TO_GPU;
-    meshIndexBuffer = context->createBuffer(bufferDesc);
-    meshIndexBuffer->writeData(0, sizeof(indices), indices);
 
     Blast::GfxRootSignatureDesc rootSignatureDesc;
     rootSignatureDesc.stages = Blast::SHADER_STAGE_VERT | Blast::SHADER_STAGE_FRAG;
@@ -174,6 +158,32 @@ int main() {
         fragShader = context->createShader(shaderDesc);
     }
     rootSignature = context->createRootSignature(rootSignatureDesc);
+
+    // load resource
+    Blast::GfxBufferDesc bufferDesc;
+    bufferDesc.size = sizeof(Vertex) * 4;
+    bufferDesc.type = Blast::RESOURCE_TYPE_VERTEX_BUFFER;
+    bufferDesc.usage = Blast::RESOURCE_USAGE_CPU_TO_GPU;
+    meshVertexBuffer = context->createBuffer(bufferDesc);
+    meshVertexBuffer->writeData(0,sizeof(vertices), vertices);
+
+    bufferDesc.size = sizeof(unsigned int) * 6;
+    bufferDesc.type = Blast::RESOURCE_TYPE_INDEX_BUFFER;
+    bufferDesc.usage = Blast::RESOURCE_USAGE_CPU_TO_GPU;
+    meshIndexBuffer = context->createBuffer(bufferDesc);
+    meshIndexBuffer->writeData(0, sizeof(indices), indices);
+
+    int texWidth, texHeight, texChannels;
+    unsigned char* pixels = stbi_load("./Resource/test.png", &texWidth, &texHeight, &texChannels, STBI_rgb_alpha);
+    uint32_t imageSize = texWidth * texHeight * texChannels;
+    bufferDesc.size = imageSize;
+    bufferDesc.type = Blast::RESOURCE_TYPE_RW_BUFFER;
+    bufferDesc.usage = Blast::RESOURCE_USAGE_CPU_TO_GPU;
+    Blast::GfxBuffer* stagingBuffer = context->createBuffer(bufferDesc);
+    stagingBuffer->writeData(0, imageSize, pixels);
+    stbi_image_free(pixels);
+
+    delete stagingBuffer;
 
     glfwInit();
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
@@ -291,6 +301,13 @@ int main() {
         clearValue.depth = 1.0f;
         clearValue.stencil = 0;
         cmds[frameIndex]->bindRenderPass(renderPasses[frameIndex], clearValue);
+        cmds[frameIndex]->setViewport(0.0, 0.0, 800.0, 600.0);
+        cmds[frameIndex]->setScissor(0, 0, 800, 600);
+        cmds[frameIndex]->bindGraphicsPipeline(pipeline);
+        cmds[frameIndex]->bindRootSignature(rootSignature);
+        cmds[frameIndex]->bindVertexBuffer(meshVertexBuffer, 0);
+        cmds[frameIndex]->bindIndexBuffer(meshIndexBuffer, 0, Blast::INDEX_TYPE_UINT32);
+        cmds[frameIndex]->drawIndexed(6, 1, 0, 0, 0);
         cmds[frameIndex]->unbindRenderPass();
 
         {
