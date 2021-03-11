@@ -4,6 +4,7 @@
 #include <Gfx/GfxContext.h>
 #include <Gfx/GfxBuffer.h>
 #include <Gfx/GfxTexture.h>
+#include <Gfx/GfxSampler.h>
 #include <Gfx/GfxSwapchain.h>
 #include <Gfx/GfxCommandBuffer.h>
 #include <Gfx/GfxRenderPass.h>
@@ -35,6 +36,7 @@ Blast::GfxGraphicsPipeline* pipeline = nullptr;
 Blast::GfxBuffer* meshIndexBuffer = nullptr;
 Blast::GfxBuffer* meshVertexBuffer = nullptr;
 Blast::GfxTexture* texture = nullptr;
+Blast::GfxSampler* sampler = nullptr;
 uint32_t frameIndex = 0;
 uint32_t imageCount = 0;
 
@@ -48,10 +50,10 @@ struct Vertex {
 };
 
 float vertices[] = {
-        -0.5f,  -0.5f, 0.0f, 1.0f, 0.0f,
-        0.5f, -0.5f, 0.0f, 0.0f, 0.0f,
-        0.5f, 0.5f, 0.0f, 0.0f, 1.0f,
-        -0.5f, 0.5f, 0.0f, 1.0f, 1.0f
+        -0.5f,  -0.5f, 0.0f, 0.0f, 0.0f,
+        0.5f, -0.5f, 1.0f, 1.0f, 0.0f,
+        0.5f, 0.5f, 0.0f, 1.0f, 1.0f,
+        -0.5f, 0.5f, 0.0f, 0.0f, 1.0f
 };
 
 unsigned int indices[] = {
@@ -59,6 +61,10 @@ unsigned int indices[] = {
 };
 
 void shutdown() {
+    if (sampler) {
+        delete sampler;
+    }
+
     if (texture) {
         delete texture;
     }
@@ -134,7 +140,7 @@ int main() {
 
     {
         Blast::ShaderCompileDesc compileDesc;
-        compileDesc.code = readFileData(projectDir + "/Resource/triangle.vert");
+        compileDesc.code = readFileData(projectDir + "/Resource/texture.vert");
         compileDesc.stage = Blast::SHADER_STAGE_VERT;
         Blast::ShaderCompileResult compileResult = shaderCompiler->compile(compileDesc);
         rootSignatureDesc.vertex = compileResult.reflection;
@@ -147,7 +153,7 @@ int main() {
 
     {
         Blast::ShaderCompileDesc compileDesc;
-        compileDesc.code = readFileData(projectDir + "/Resource/triangle.frag");
+        compileDesc.code = readFileData(projectDir + "/Resource/texture.frag");
         compileDesc.stage = Blast::SHADER_STAGE_FRAG;
         Blast::ShaderCompileResult compileResult = shaderCompiler->compile(compileDesc);
         rootSignatureDesc.pixel = compileResult.reflection;
@@ -158,32 +164,6 @@ int main() {
         fragShader = context->createShader(shaderDesc);
     }
     rootSignature = context->createRootSignature(rootSignatureDesc);
-
-    // load resource
-    Blast::GfxBufferDesc bufferDesc;
-    bufferDesc.size = sizeof(Vertex) * 4;
-    bufferDesc.type = Blast::RESOURCE_TYPE_VERTEX_BUFFER;
-    bufferDesc.usage = Blast::RESOURCE_USAGE_CPU_TO_GPU;
-    meshVertexBuffer = context->createBuffer(bufferDesc);
-    meshVertexBuffer->writeData(0,sizeof(vertices), vertices);
-
-    bufferDesc.size = sizeof(unsigned int) * 6;
-    bufferDesc.type = Blast::RESOURCE_TYPE_INDEX_BUFFER;
-    bufferDesc.usage = Blast::RESOURCE_USAGE_CPU_TO_GPU;
-    meshIndexBuffer = context->createBuffer(bufferDesc);
-    meshIndexBuffer->writeData(0, sizeof(indices), indices);
-
-    int texWidth, texHeight, texChannels;
-    unsigned char* pixels = stbi_load("./Resource/test.png", &texWidth, &texHeight, &texChannels, STBI_rgb_alpha);
-    uint32_t imageSize = texWidth * texHeight * texChannels;
-    bufferDesc.size = imageSize;
-    bufferDesc.type = Blast::RESOURCE_TYPE_RW_BUFFER;
-    bufferDesc.usage = Blast::RESOURCE_USAGE_CPU_TO_GPU;
-    Blast::GfxBuffer* stagingBuffer = context->createBuffer(bufferDesc);
-    stagingBuffer->writeData(0, imageSize, pixels);
-    stbi_image_free(pixels);
-
-    delete stagingBuffer;
 
     glfwInit();
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
@@ -230,6 +210,79 @@ int main() {
         // cmd
         cmds[i] = cmdPool->allocBuf(false);
     }
+
+    // load resource
+    Blast::GfxBufferDesc bufferDesc;
+    bufferDesc.size = sizeof(Vertex) * 4;
+    bufferDesc.type = Blast::RESOURCE_TYPE_VERTEX_BUFFER;
+    bufferDesc.usage = Blast::RESOURCE_USAGE_CPU_TO_GPU;
+    meshVertexBuffer = context->createBuffer(bufferDesc);
+    meshVertexBuffer->writeData(0,sizeof(vertices), vertices);
+
+    bufferDesc.size = sizeof(unsigned int) * 6;
+    bufferDesc.type = Blast::RESOURCE_TYPE_INDEX_BUFFER;
+    bufferDesc.usage = Blast::RESOURCE_USAGE_CPU_TO_GPU;
+    meshIndexBuffer = context->createBuffer(bufferDesc);
+    meshIndexBuffer->writeData(0, sizeof(indices), indices);
+
+    int texWidth, texHeight, texChannels;
+    std::string imagePath = projectDir + "/Resource/test.png";
+    unsigned char* pixels = stbi_load(imagePath.c_str(), &texWidth, &texHeight, &texChannels, STBI_rgb_alpha);
+    uint32_t imageSize = texWidth * texHeight * texChannels;
+    bufferDesc.size = imageSize;
+    bufferDesc.type = Blast::RESOURCE_TYPE_RW_BUFFER;
+    bufferDesc.usage = Blast::RESOURCE_USAGE_CPU_TO_GPU;
+    Blast::GfxBuffer* stagingBuffer = context->createBuffer(bufferDesc);
+    stagingBuffer->writeData(0, imageSize, pixels);
+    stbi_image_free(pixels);
+
+    Blast::GfxTextureDesc textureDesc;
+    textureDesc.width = texWidth;
+    textureDesc.height = texHeight;
+    textureDesc.format = Blast::FORMAT_R8G8B8A8_UNORM;
+    textureDesc.type = Blast::RESOURCE_TYPE_TEXTURE | Blast::RESOURCE_TYPE_RW_TEXTURE;
+    textureDesc.usage = Blast::RESOURCE_USAGE_GPU_ONLY;
+    texture = context->createTexture(textureDesc);
+
+    Blast::GfxCommandBuffer* copyCmd = cmdPool->allocBuf(false);
+    copyCmd->begin();
+    {
+        // 设置纹理为读写状态
+        Blast::GfxTextureBarrier barrier;
+        barrier.texture = texture;
+        barrier.newState = Blast::RESOURCE_STATE_COPY_DEST;
+        copyCmd->setBarrier(0, nullptr, 1, &barrier);
+    }
+    Blast::GfxCopyToImageHelper helper;
+    helper.bufferOffset = 0;
+    helper.layer = 0;
+    helper.level = 0;
+    copyCmd->copyToImage(stagingBuffer, texture, helper);
+    {
+        // 设置纹理为Shader可读状态
+        Blast::GfxTextureBarrier barrier;
+        barrier.texture = texture;
+        barrier.newState = Blast::RESOURCE_STATE_SHADER_RESOURCE;
+        copyCmd->setBarrier(0, nullptr, 1, &barrier);
+    }
+    copyCmd->end();
+
+    Blast::GfxSubmitInfo submitInfo;
+    submitInfo.cmdBufCount = 1;
+    submitInfo.cmdBufs = &copyCmd;
+    submitInfo.signalFence = nullptr;
+    submitInfo.waitSemaphoreCount = 0;
+    submitInfo.waitSemaphores = nullptr;
+    submitInfo.signalSemaphoreCount = 0;
+    submitInfo.signalSemaphores = nullptr;
+    queue->submit(submitInfo);
+    delete stagingBuffer;
+
+    Blast::GfxSamplerDesc samplerDesc = {};
+    sampler = context->createSampler(samplerDesc);
+
+    rootSignature->setSampler("testSampler", sampler);
+    rootSignature->setTexture("testTexture", texture);
 
     Blast::GfxVertexLayout vertexLayout = {};
     vertexLayout.attribCount = 2;
