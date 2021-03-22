@@ -7,7 +7,7 @@
 #include <Gfx/GfxSampler.h>
 #include <Gfx/GfxSwapchain.h>
 #include <Gfx/GfxCommandBuffer.h>
-#include <Gfx/GfxRenderPass.h>
+#include <Gfx/GfxRenderTarget.h>
 #include <Gfx/GfxShader.h>
 #include <Gfx/GfxPipeline.h>
 #include <Gfx/Vulkan/VulkanContext.h>
@@ -21,8 +21,10 @@
 
 Blast::ShaderCompiler* shaderCompiler = nullptr;
 Blast::GfxContext* context = nullptr;
+Blast::GfxSurface* surface = nullptr;
 Blast::GfxSwapchain* swapchain = nullptr;
-Blast::GfxRenderPass** renderPasses = nullptr;
+Blast::GfxRenderPass* renderPass = nullptr;
+Blast::GfxFramebuffer** framebuffers = nullptr;
 Blast::GfxQueue* queue = nullptr;
 Blast::GfxFence** renderCompleteFences = nullptr;
 Blast::GfxSemaphore** imageAcquiredSemaphores = nullptr;
@@ -113,12 +115,20 @@ void shutdown() {
         delete[] renderCompleteSemaphores;
     }
 
-    if (renderPasses) {
-        delete[] renderPasses;
+    if (renderPass) {
+        delete renderPass;
+    }
+
+    if (framebuffers) {
+        delete[] framebuffers;
     }
 
     if (swapchain) {
         delete swapchain;
+    }
+
+    if (surface) {
+        delete surface;
     }
 
     if (context) {
@@ -171,10 +181,24 @@ int main() {
     GLFWwindow* window = glfwCreateWindow(800, 600, "BlastExample", nullptr, nullptr);
     void* windowPtr = glfwGetWin32Window(window);
 
+    Blast::GfxSurfaceDesc surfaceDesc;
+    surfaceDesc.originSurface = windowPtr;
+    surface = context->createSurface(surfaceDesc);
+
+    Blast::GfxRenderPassDesc renderPassDesc;
+    renderPassDesc.numColorAttachments = 1;
+    renderPassDesc.colors[0].format = surface->getFormat();
+    renderPassDesc.colors[0].loadOp = Blast::LOAD_ACTION_CLEAR;
+    renderPassDesc.hasDepthStencil = true;
+    renderPassDesc.depthStencil.format = Blast::FORMAT_D24_UNORM_S8_UINT;
+    renderPassDesc.depthStencil.depthLoadOp = Blast::LOAD_ACTION_CLEAR;
+    renderPassDesc.depthStencil.stencilLoadOp = Blast::LOAD_ACTION_CLEAR;
+    renderPass = context->createRenderPass(renderPassDesc);
+
     Blast::GfxSwapchainDesc swapchainDesc;
     swapchainDesc.width = 800;
     swapchainDesc.height = 600;
-    swapchainDesc.windowHandle = windowPtr;
+    swapchainDesc.surface = surface;
     swapchain = context->createSwapchain(swapchainDesc);
     imageCount = swapchain->getImageCount();
 
@@ -187,7 +211,7 @@ int main() {
     cmdPoolDesc.transient = false;
     cmdPool = context->createCommandBufferPool(cmdPoolDesc);
     cmds = new Blast::GfxCommandBuffer*[imageCount];
-    renderPasses = new Blast::GfxRenderPass*[imageCount];
+    framebuffers = new Blast::GfxFramebuffer*[imageCount];
     for (int i = 0; i < imageCount; ++i) {
         // sync
         renderCompleteFences[i] = context->createFence();
@@ -195,17 +219,15 @@ int main() {
         renderCompleteSemaphores[i] = context->createSemaphore();
 
         // renderPassws
-        Blast::GfxRenderPassDesc renderPassDesc;
-        renderPassDesc.numColorAttachments = 1;
-        renderPassDesc.colors[0].target = swapchain->getColorRenderTarget(i);
-        renderPassDesc.colors[0].loadOp = Blast::LOAD_ACTION_CLEAR;
-        renderPassDesc.hasDepthStencil = true;
-        renderPassDesc.depthStencil.target = swapchain->getDepthRenderTarget(i);
-        renderPassDesc.depthStencil.depthLoadOp = Blast::LOAD_ACTION_CLEAR;
-        renderPassDesc.depthStencil.stencilLoadOp = Blast::LOAD_ACTION_CLEAR;
-        renderPassDesc.width = 800;
-        renderPassDesc.height = 600;
-        renderPasses[i] = context->createRenderPass(renderPassDesc);
+        Blast::GfxFramebufferDesc framebufferDesc;
+        framebufferDesc.renderPass = renderPass;
+        framebufferDesc.numColorAttachments = 1;
+        framebufferDesc.colors[0].target = swapchain->getColorRenderTarget(i);
+        framebufferDesc.hasDepthStencil = true;
+        framebufferDesc.depthStencil.target = swapchain->getDepthRenderTarget(i);
+        framebufferDesc.width = 800;
+        framebufferDesc.height = 600;
+        framebuffers[i] = context->createFramebuffer(framebufferDesc);
 
         // cmd
         cmds[i] = cmdPool->allocBuf(false);
@@ -315,7 +337,7 @@ int main() {
     rasterizerState.fillMode = Blast::FILL_MODE_SOLID;
 
     Blast::GfxGraphicsPipelineDesc pipelineDesc;
-    pipelineDesc.renderPass = renderPasses[0];
+    pipelineDesc.renderPass = renderPass;
     pipelineDesc.rootSignature = rootSignature;
     pipelineDesc.vertexShader = vertShader;
     pipelineDesc.pixelShader = fragShader;
@@ -353,7 +375,7 @@ int main() {
         clearValue.color[3] = 1.0f;
         clearValue.depth = 1.0f;
         clearValue.stencil = 0;
-        cmds[frameIndex]->bindRenderPass(renderPasses[frameIndex], clearValue);
+        cmds[frameIndex]->bindRenderTarget(renderPass, framebuffers[frameIndex], clearValue);
         cmds[frameIndex]->setViewport(0.0, 0.0, 800.0, 600.0);
         cmds[frameIndex]->setScissor(0, 0, 800, 600);
         cmds[frameIndex]->bindGraphicsPipeline(pipeline);
@@ -361,7 +383,7 @@ int main() {
         cmds[frameIndex]->bindVertexBuffer(meshVertexBuffer, 0);
         cmds[frameIndex]->bindIndexBuffer(meshIndexBuffer, 0, Blast::INDEX_TYPE_UINT32);
         cmds[frameIndex]->drawIndexed(6, 1, 0, 0, 0);
-        cmds[frameIndex]->unbindRenderPass();
+        cmds[frameIndex]->unbindRenderTarget();
 
         {
             // 设置交换链RT为显示状态
