@@ -19,6 +19,18 @@
 #include <fstream>
 #include <sstream>
 
+#define SAFE_DELETE(x) \
+    { \
+        delete x; \
+        x = nullptr; \
+    }
+
+#define SAFE_DELETE_ARRAY(x) \
+    { \
+        delete[] x; \
+        x = nullptr; \
+    }
+
 Blast::ShaderCompiler* shaderCompiler = nullptr;
 Blast::GfxContext* context = nullptr;
 Blast::GfxSurface* surface = nullptr;
@@ -45,6 +57,8 @@ uint32_t imageCount = 0;
 static std::string projectDir(PROJECT_DIR);
 
 static std::string readFileData(const std::string& path);
+
+static void refreshSwapchain(uint32_t width, uint32_t height);
 
 struct Vertex {
     float pos[3];
@@ -177,7 +191,7 @@ int main() {
 
     glfwInit();
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-    glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
+    // glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
     GLFWwindow* window = glfwCreateWindow(800, 600, "BlastExample", nullptr, nullptr);
     void* windowPtr = glfwGetWin32Window(window);
 
@@ -348,8 +362,14 @@ int main() {
     pipeline = context->createGraphicsPipeline(pipelineDesc);
 
     while (!glfwWindowShouldClose(window)) {
-        uint32_t swapchainImageIndex;
+        glfwPollEvents();
+        uint32_t swapchainImageIndex = 0;
         context->acquireNextImage(swapchain, imageAcquiredSemaphores[frameIndex], nullptr, &swapchainImageIndex);
+        if (swapchainImageIndex == -1) {
+            Blast::GfxSurfaceSize size = surface->getSize();
+            refreshSwapchain(size.width, size.height);
+            continue;
+        }
 
         renderCompleteFences[frameIndex]->waitForComplete();
         renderCompleteFences[frameIndex]->reset();
@@ -376,8 +396,8 @@ int main() {
         clearValue.depth = 1.0f;
         clearValue.stencil = 0;
         cmds[frameIndex]->bindRenderTarget(renderPass, framebuffers[frameIndex], clearValue);
-        cmds[frameIndex]->setViewport(0.0, 0.0, 800.0, 600.0);
-        cmds[frameIndex]->setScissor(0, 0, 800, 600);
+        cmds[frameIndex]->setViewport(0.0, 0.0, colorRT->getWidth(), colorRT->getHeight());
+        cmds[frameIndex]->setScissor(0, 0, colorRT->getWidth(), colorRT->getHeight());
         cmds[frameIndex]->bindGraphicsPipeline(pipeline);
         cmds[frameIndex]->bindRootSignature(rootSignature);
         cmds[frameIndex]->bindVertexBuffer(meshVertexBuffer, 0);
@@ -414,14 +434,84 @@ int main() {
         queue->present(presentInfo);
 
         frameIndex = (frameIndex + 1) % imageCount;
-
-        glfwPollEvents();
     }
     glfwDestroyWindow(window);
     glfwTerminate();
 
     shutdown();
     return 0;
+}
+
+void refreshSwapchain(uint32_t width, uint32_t height) {
+    if (width == 0 || height == 0)
+        return;
+    queue->waitIdle();
+    Blast::GfxSwapchain* oldSwapchain = swapchain;
+    Blast::GfxSwapchainDesc swapchainDesc;
+    swapchainDesc.surface = surface;
+    swapchainDesc.width = width;
+    swapchainDesc.height = height;
+    swapchainDesc.oldSwapchain = oldSwapchain;
+    swapchain = context->createSwapchain(swapchainDesc);
+
+    SAFE_DELETE(oldSwapchain);
+    SAFE_DELETE_ARRAY(cmds);
+    SAFE_DELETE_ARRAY(renderCompleteFences);
+    SAFE_DELETE_ARRAY(imageAcquiredSemaphores);
+    SAFE_DELETE_ARRAY(renderCompleteSemaphores);
+    SAFE_DELETE_ARRAY(framebuffers);
+
+    imageCount = swapchain->getImageCount();
+    renderCompleteFences = new Blast::GfxFence*[imageCount];
+    imageAcquiredSemaphores = new Blast::GfxSemaphore*[imageCount];
+    renderCompleteSemaphores = new Blast::GfxSemaphore*[imageCount];
+    cmds = new Blast::GfxCommandBuffer*[imageCount];
+    framebuffers = new Blast::GfxFramebuffer*[imageCount];
+    for (int i = 0; i < imageCount; ++i) {
+        // sync
+        renderCompleteFences[i] = context->createFence();
+        imageAcquiredSemaphores[i] = context->createSemaphore();
+        renderCompleteSemaphores[i] = context->createSemaphore();
+
+        // renderPassws
+        Blast::GfxFramebufferDesc framebufferDesc;
+        framebufferDesc.renderPass = renderPass;
+        framebufferDesc.numColorAttachments = 1;
+        framebufferDesc.colors[0].target = swapchain->getColorRenderTarget(i);
+        framebufferDesc.hasDepthStencil = true;
+        framebufferDesc.depthStencil.target = swapchain->getDepthRenderTarget(i);
+        framebufferDesc.width = swapchain->getColorRenderTarget(i)->getWidth();
+        framebufferDesc.height = swapchain->getColorRenderTarget(i)->getHeight();
+        framebuffers[i] = context->createFramebuffer(framebufferDesc);
+
+        // cmd
+        cmds[i] = cmdPool->allocBuf(false);
+
+        // set present format
+        Blast::GfxTexture* colorRT = swapchain->getColorRenderTarget(i);
+        Blast::GfxTexture* depthRT = swapchain->getDepthRenderTarget(i);
+        cmds[i]->begin();
+        {
+            // 设置交换链RT为显示状态
+            Blast::GfxTextureBarrier barriers[2];
+            barriers[0].texture = colorRT;
+            barriers[0].newState = Blast::RESOURCE_STATE_PRESENT ;
+            barriers[1].texture = depthRT;
+            barriers[1].newState = Blast::RESOURCE_STATE_DEPTH_WRITE ;
+            cmds[i]->setBarrier(0, nullptr, 2, barriers);
+        }
+        cmds[i]->end();
+    }
+    Blast::GfxSubmitInfo submitInfo;
+    submitInfo.cmdBufCount = imageCount;
+    submitInfo.cmdBufs = cmds;
+    submitInfo.signalFence = nullptr;
+    submitInfo.waitSemaphoreCount = 0;
+    submitInfo.waitSemaphores = nullptr;
+    submitInfo.signalSemaphoreCount = 0;
+    submitInfo.signalSemaphores = nullptr;
+    queue->submit(submitInfo);
+    queue->waitIdle();
 }
 
 std::string readFileData(const std::string& path) {
