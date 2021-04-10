@@ -1,18 +1,18 @@
 #define GLFW_EXPOSE_NATIVE_WIN32
 #include <GLFW/glfw3.h>
 #include <GLFW/glfw3native.h>
-#include <Gfx/GfxContext.h>
-#include <Gfx/GfxBuffer.h>
-#include <Gfx/GfxTexture.h>
-#include <Gfx/GfxSampler.h>
-#include <Gfx/GfxSwapchain.h>
-#include <Gfx/GfxCommandBuffer.h>
-#include <Gfx/GfxRenderTarget.h>
-#include <Gfx/GfxShader.h>
-#include <Gfx/GfxPipeline.h>
-#include <Gfx/Vulkan/VulkanContext.h>
-#include <Utility/ShaderCompiler.h>
-#include <Utility/VulkanShaderCompiler.h>
+#include <Blast/Gfx/GfxContext.h>
+#include <Blast/Gfx/GfxBuffer.h>
+#include <Blast/Gfx/GfxTexture.h>
+#include <Blast/Gfx/GfxSampler.h>
+#include <Blast/Gfx/GfxSwapchain.h>
+#include <Blast/Gfx/GfxCommandBuffer.h>
+#include <Blast/Gfx/GfxRenderTarget.h>
+#include <Blast/Gfx/GfxShader.h>
+#include <Blast/Gfx/GfxPipeline.h>
+#include <Blast/Gfx/Vulkan/VulkanContext.h>
+#include <Blast/Utility/ShaderCompiler.h>
+#include <Blast/Utility/VulkanShaderCompiler.h>
 #define STB_IMAGE_IMPLEMENTATION
 #include <stb_image.h>
 #include <iostream>
@@ -155,9 +155,9 @@ void shutdown() {
 }
 
 int main() {
-    shaderCompiler = new Blast::VulkanShaderCompiler();
-
     context = new Blast::VulkanContext();
+
+    shaderCompiler = new Blast::VulkanShaderCompiler();
 
     Blast::GfxRootSignatureDesc rootSignatureDesc;
     rootSignatureDesc.stages = Blast::SHADER_STAGE_VERT | Blast::SHADER_STAGE_FRAG;
@@ -349,16 +349,17 @@ int main() {
     rasterizerState.cullMode = Blast::CULL_MODE_BACK;
     rasterizerState.frontFace = Blast::FRONT_FACE_CW; // 不再使用gl默认的ccw
     rasterizerState.fillMode = Blast::FILL_MODE_SOLID;
+    rasterizerState.primitiveTopo = Blast::PRIMITIVE_TOPO_TRI_LIST;
 
     Blast::GfxGraphicsPipelineDesc pipelineDesc;
     pipelineDesc.renderPass = renderPass;
     pipelineDesc.rootSignature = rootSignature;
     pipelineDesc.vertexShader = vertShader;
     pipelineDesc.pixelShader = fragShader;
-    pipelineDesc.vertexLayout = &vertexLayout;
-    pipelineDesc.blendState = &blendState;
-    pipelineDesc.depthState = &depthState;
-    pipelineDesc.rasterizerState = &rasterizerState;
+    pipelineDesc.vertexLayout = vertexLayout;
+    pipelineDesc.blendState = blendState;
+    pipelineDesc.depthState = depthState;
+    pipelineDesc.rasterizerState = rasterizerState;
     pipeline = context->createGraphicsPipeline(pipelineDesc);
 
     while (!glfwWindowShouldClose(window)) {

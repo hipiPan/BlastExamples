@@ -13,3 +13,6 @@ target_link_libraries(BlastExamples PRIVATE glfw)
 add_library(stb INTERFACE)
 target_include_directories(stb INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/External/stb)
 target_link_libraries(BlastExamples PRIVATE stb)
+
+# builtin resources
+install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/Resource DESTINATION ${CMAKE_CURRENT_BINARY_DIR})
