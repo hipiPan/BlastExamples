@@ -160,15 +160,12 @@ int main() {
     shaderCompiler = new Blast::VulkanShaderCompiler();
 
     Blast::GfxRootSignatureDesc rootSignatureDesc;
-    rootSignatureDesc.stages = Blast::SHADER_STAGE_VERT | Blast::SHADER_STAGE_FRAG;
 
     {
         Blast::ShaderCompileDesc compileDesc;
         compileDesc.code = readFileData(projectDir + "/Resource/texture.vert");
         compileDesc.stage = Blast::SHADER_STAGE_VERT;
         Blast::ShaderCompileResult compileResult = shaderCompiler->compile(compileDesc);
-        rootSignatureDesc.vertex = compileResult.reflection;
-
         Blast::GfxShaderDesc shaderDesc;
         shaderDesc.stage = Blast::SHADER_STAGE_VERT;
         shaderDesc.bytes = compileResult.bytes;
@@ -180,13 +177,31 @@ int main() {
         compileDesc.code = readFileData(projectDir + "/Resource/texture.frag");
         compileDesc.stage = Blast::SHADER_STAGE_FRAG;
         Blast::ShaderCompileResult compileResult = shaderCompiler->compile(compileDesc);
-        rootSignatureDesc.pixel = compileResult.reflection;
-
         Blast::GfxShaderDesc shaderDesc;
         shaderDesc.stage = Blast::SHADER_STAGE_FRAG;
         shaderDesc.bytes = compileResult.bytes;
         fragShader = context->createShader(shaderDesc);
     }
+    // Root Signature布局
+    Blast::GfxRegisterInfo registerInfo;
+    registerInfo.set = 0;
+    registerInfo.reg = 0;
+    registerInfo.size = 1;
+    registerInfo.type = Blast::RESOURCE_TYPE_UNIFORM_BUFFER;
+    rootSignatureDesc.registers.push_back(registerInfo);
+
+    registerInfo.set = 0;
+    registerInfo.reg = 1;
+    registerInfo.size = 1;
+    registerInfo.type = Blast::RESOURCE_TYPE_TEXTURE;
+    rootSignatureDesc.registers.push_back(registerInfo);
+
+    registerInfo.set = 0;
+    registerInfo.reg = 2;
+    registerInfo.size = 1;
+    registerInfo.type = Blast::RESOURCE_TYPE_SAMPLER;
+    rootSignatureDesc.registers.push_back(registerInfo);
+
     rootSignature = context->createRootSignature(rootSignatureDesc);
 
     glfwInit();
@@ -317,8 +332,8 @@ int main() {
     Blast::GfxSamplerDesc samplerDesc = {};
     sampler = context->createSampler(samplerDesc);
 
-    rootSignature->setSampler("testSampler", sampler);
-    rootSignature->setTexture("testTexture", texture);
+    rootSignature->setTexture(0, 1, texture);
+    rootSignature->setSampler(0, 2, sampler);
 
     Blast::GfxVertexLayout vertexLayout = {};
     vertexLayout.attribCount = 2;
@@ -333,6 +348,12 @@ int main() {
     vertexLayout.attribs[1].binding = 0;
     vertexLayout.attribs[1].location = 1;
     vertexLayout.attribs[1].offset = offsetof(Vertex, uv);
+
+    vertexLayout.attribs[2].semantic = Blast::SEMANTIC_TEXCOORD1;
+    vertexLayout.attribs[2].format = Blast::FORMAT_R32G32_FLOAT;
+    vertexLayout.attribs[2].binding = 0;
+    vertexLayout.attribs[2].location = 2;
+    vertexLayout.attribs[2].offset = offsetof(Vertex, uv);
 
     Blast::GfxBlendState blendState = {};
     blendState.srcFactors[0] = Blast::BLEND_ONE;
