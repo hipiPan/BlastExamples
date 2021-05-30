@@ -50,6 +50,7 @@ Blast::GfxRootSignature* rootSignature = nullptr;
 Blast::GfxGraphicsPipeline* pipeline = nullptr;
 Blast::GfxBuffer* meshIndexBuffer = nullptr;
 Blast::GfxBuffer* meshVertexBuffer = nullptr;
+Blast::GfxBuffer* stagingBuffer = nullptr;
 Blast::GfxTexture* texture = nullptr;
 Blast::GfxSampler* sampler = nullptr;
 uint32_t frameIndex = 0;
@@ -78,6 +79,8 @@ unsigned int indices[] = {
 };
 
 void shutdown() {
+    queue->waitIdle();
+
     if (sampler) {
         delete sampler;
     }
@@ -92,6 +95,10 @@ void shutdown() {
 
     if (meshVertexBuffer) {
         delete meshVertexBuffer;
+    }
+
+    if (stagingBuffer) {
+        delete stagingBuffer;
     }
 
     if (vertShader) {
@@ -123,15 +130,24 @@ void shutdown() {
     }
     
     if (renderCompleteFences) {
-        delete[] renderCompleteFences;
+        for (int i = 0; i < imageCount; ++i) {
+            delete renderCompleteFences[i];
+        }
+        delete renderCompleteFences;
     }
 
     if (imageAcquiredSemaphores) {
-        delete[] imageAcquiredSemaphores;
+        for (int i = 0; i < imageCount; ++i) {
+            delete imageAcquiredSemaphores[i];
+        }
+        delete imageAcquiredSemaphores;
     }
 
     if (renderCompleteSemaphores) {
-        delete[] renderCompleteSemaphores;
+        for (int i = 0; i < imageCount; ++i) {
+            delete renderCompleteSemaphores[i];
+        }
+        delete renderCompleteSemaphores;
     }
 
     if (renderPass) {
@@ -139,7 +155,10 @@ void shutdown() {
     }
 
     if (framebuffers) {
-        delete[] framebuffers;
+        for (int i = 0; i < imageCount; ++i) {
+            delete framebuffers[i];
+        }
+        delete framebuffers;
     }
 
     if (swapchain) {
@@ -290,7 +309,7 @@ int main() {
     bufferDesc.size = imageSize;
     bufferDesc.type = Blast::RESOURCE_TYPE_RW_BUFFER;
     bufferDesc.usage = Blast::RESOURCE_USAGE_CPU_TO_GPU;
-    Blast::GfxBuffer* stagingBuffer = context->createBuffer(bufferDesc);
+    stagingBuffer = context->createBuffer(bufferDesc);
     stagingBuffer->writeData(0, imageSize, pixels);
     stbi_image_free(pixels);
 
@@ -334,7 +353,6 @@ int main() {
     submitInfo.signalSemaphoreCount = 0;
     submitInfo.signalSemaphores = nullptr;
     queue->submit(submitInfo);
-    delete stagingBuffer;
 
     Blast::GfxSamplerDesc samplerDesc = {};
     sampler = context->createSampler(samplerDesc);
