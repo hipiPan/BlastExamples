@@ -45,6 +45,7 @@ Blast::GfxCommandBufferPool* cmdPool = nullptr;
 Blast::GfxCommandBuffer** cmds = nullptr;
 Blast::GfxShader* vertShader = nullptr;
 Blast::GfxShader* fragShader = nullptr;
+Blast::GfxDescriptorSet* descriptorSet = nullptr;
 Blast::GfxRootSignature* rootSignature = nullptr;
 Blast::GfxGraphicsPipeline* pipeline = nullptr;
 Blast::GfxBuffer* meshIndexBuffer = nullptr;
@@ -99,6 +100,10 @@ void shutdown() {
 
     if (fragShader) {
         delete fragShader;
+    }
+
+    if (descriptorSet) {
+        delete descriptorSet;
     }
 
     if (rootSignature) {
@@ -203,6 +208,8 @@ int main() {
     rootSignatureDesc.registers.push_back(registerInfo);
 
     rootSignature = context->createRootSignature(rootSignatureDesc);
+
+    descriptorSet = rootSignature->allocateSet(0);
 
     glfwInit();
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
@@ -332,8 +339,8 @@ int main() {
     Blast::GfxSamplerDesc samplerDesc = {};
     sampler = context->createSampler(samplerDesc);
 
-    rootSignature->setTexture(0, 1, texture);
-    rootSignature->setSampler(0, 2, sampler);
+    descriptorSet->setTexture(1, texture);
+    descriptorSet->setSampler(2, sampler);
 
     Blast::GfxVertexLayout vertexLayout = {};
     vertexLayout.attribCount = 2;
@@ -422,6 +429,7 @@ int main() {
         cmds[frameIndex]->setScissor(0, 0, colorRT->getWidth(), colorRT->getHeight());
         cmds[frameIndex]->bindGraphicsPipeline(pipeline);
         cmds[frameIndex]->bindRootSignature(rootSignature);
+        cmds[frameIndex]->bindDescriptorSets(1, &descriptorSet);
         cmds[frameIndex]->bindVertexBuffer(meshVertexBuffer, 0);
         cmds[frameIndex]->bindIndexBuffer(meshIndexBuffer, 0, Blast::INDEX_TYPE_UINT32);
         cmds[frameIndex]->drawIndexed(6, 1, 0, 0, 0);
