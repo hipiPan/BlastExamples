@@ -152,6 +152,11 @@ int main() {
         glfwPollEvents();
         int window_width, window_height;
         glfwGetWindowSize(window, &window_width, &window_height);
+
+        if (window_width == 0 || window_height == 0) {
+            continue;
+        }
+
         if (frame_width != window_width || frame_height != window_height) {
             frame_width = window_width;
             frame_height = window_height;
@@ -206,7 +211,9 @@ int main() {
 
     g_device->DestroyShader(g_frag_shader);
 
-    g_device->DestroyPipeline(g_pipeline);
+    if (g_pipeline) {
+        g_device->DestroyPipeline(g_pipeline);
+    }
 
     g_device->DestroySwapChain(g_swapchain);
 
@@ -254,6 +261,10 @@ void RefreshSwapchain(void* window, uint32_t width, uint32_t height) {
     rasterizer_state.cull_mode = blast::CULL_NONE;
     rasterizer_state.front_face = blast::FRONT_FACE_CW;
     rasterizer_state.fill_mode = blast::FILL_SOLID;
+
+    if (g_pipeline) {
+        g_device->DestroyPipeline(g_pipeline);
+    }
 
     blast::GfxPipelineDesc pipeline_desc;
     pipeline_desc.sc = g_swapchain;
