@@ -1,10 +1,8 @@
 #define GLFW_EXPOSE_NATIVE_WIN32
 #include <GLFW/glfw3.h>
 #include <GLFW/glfw3native.h>
-#include <Blast/Gfx/GfxDevice.h>
-#include <Blast/Gfx/Vulkan/VulkanDevice.h>
-#include <Blast/Utility/ShaderCompiler.h>
-#include <Blast/Utility/VulkanShaderCompiler.h>
+#include <GfxDevice.h>
+#include <GfxShaderCompiler.h>
 #define STB_IMAGE_IMPLEMENTATION
 #include <stb_image.h>
 #include <iostream>
@@ -23,7 +21,7 @@
         x = nullptr; \
     }
 
-blast::ShaderCompiler* g_shader_compiler = nullptr;
+blast::GfxShaderCompiler* g_shader_compiler = nullptr;
 blast::GfxDevice* g_device = nullptr;
 blast::GfxSwapChain* g_swapchain = nullptr;
 blast::GfxShader* g_vert_shader = nullptr;
@@ -58,9 +56,9 @@ unsigned int indices[] = {
 };
 
 int main() {
-    g_shader_compiler = new blast::VulkanShaderCompiler();
+    g_shader_compiler = blast::GfxShaderCompiler::CreateShaderCompiler();
 
-    g_device = new blast::VulkanDevice();
+    g_device = blast::GfxDevice::CreateDevice();
 
     {
         blast::ShaderCompileDesc compile_desc;
@@ -86,7 +84,7 @@ int main() {
         g_frag_shader = g_device->CreateShader(shader_desc);
     }
 
-    // load resource
+    // Load resource
     blast::GfxCommandBuffer* copy_cmd = g_device->RequestCommandBuffer(blast::QUEUE_COPY);
     blast::GfxBufferDesc buffer_desc;
     buffer_desc.size = sizeof(Vertex) * 4;
@@ -94,11 +92,16 @@ int main() {
     buffer_desc.res_usage = blast::RESOURCE_USAGE_VERTEX_BUFFER;
     g_mesh_vertex_buffer = g_device->CreateBuffer(buffer_desc);
     {
+        blast::GfxResourceBarrier barrier;
+        barrier.resource = g_mesh_vertex_buffer;
+        barrier.new_state = blast::RESOURCE_STATE_COPY_DEST;
+        g_device->SetBarrier(copy_cmd, 1, &barrier);
+
         g_device->UpdateBuffer(copy_cmd, g_mesh_vertex_buffer, vertices, sizeof(Vertex) * 4);
-        blast::GfxBufferBarrier barrier;
-        barrier.buffer = g_mesh_vertex_buffer;
+
+        barrier.resource = g_mesh_vertex_buffer;
         barrier.new_state = blast::RESOURCE_STATE_SHADER_RESOURCE;
-        g_device->SetBarrier(copy_cmd, 1, &barrier, 0, nullptr);
+        g_device->SetBarrier(copy_cmd, 1, &barrier);
     }
 
     buffer_desc.size = sizeof(unsigned int) * 6;
@@ -106,11 +109,16 @@ int main() {
     buffer_desc.res_usage = blast::RESOURCE_USAGE_INDEX_BUFFER;
     g_mesh_index_buffer = g_device->CreateBuffer(buffer_desc);
     {
+        blast::GfxResourceBarrier barrier;
+        barrier.resource = g_mesh_index_buffer;
+        barrier.new_state = blast::RESOURCE_STATE_COPY_DEST;
+        g_device->SetBarrier(copy_cmd, 1, &barrier);
+
         g_device->UpdateBuffer(copy_cmd, g_mesh_index_buffer, indices, sizeof(unsigned int) * 6);
-        blast::GfxBufferBarrier barrier;
-        barrier.buffer = g_mesh_index_buffer;
+
+        barrier.resource = g_mesh_index_buffer;
         barrier.new_state = blast::RESOURCE_STATE_SHADER_RESOURCE;
-        g_device->SetBarrier(copy_cmd, 1, &barrier, 0, nullptr);
+        g_device->SetBarrier(copy_cmd, 1, &barrier);
     }
 
     int tex_width, tex_height, tex_channels;
@@ -125,19 +133,16 @@ int main() {
     texture_desc.res_usage = blast::RESOURCE_USAGE_SHADER_RESOURCE;
     g_texture = g_device->CreateTexture(texture_desc);
     {
-        // 设置纹理为读写状态
-        blast::GfxTextureBarrier barrier;
-        barrier.texture = g_texture;
+        blast::GfxResourceBarrier barrier;
+        barrier.resource = g_texture;
         barrier.new_state = blast::RESOURCE_STATE_COPY_DEST;
-        g_device->SetBarrier(copy_cmd, 0, nullptr, 1, &barrier);
+        g_device->SetBarrier(copy_cmd, 1, &barrier);
 
-        // 更新纹理数据
         g_device->UpdateTexture(copy_cmd, g_texture, pixels);
 
-        // 设置纹理为Shader可读状态
-        barrier.texture = g_texture;
+        barrier.resource = g_texture;
         barrier.new_state = blast::RESOURCE_STATE_SHADER_RESOURCE;
-        g_device->SetBarrier(copy_cmd, 0, nullptr, 1, &barrier);
+        g_device->SetBarrier(copy_cmd, 1, &barrier);
     }
     stbi_image_free(pixels);
 
@@ -164,21 +169,12 @@ int main() {
         }
 
         blast::GfxCommandBuffer* cmd = g_device->RequestCommandBuffer(blast::QUEUE_GRAPHICS);
+
         g_device->RenderPassBegin(cmd, g_swapchain);
 
-        blast::Viewport viewport;
-        viewport.x = 0;
-        viewport.y = 0;
-        viewport.w = frame_width;
-        viewport.h = frame_height;
-        g_device->BindViewports(cmd, 1, &viewport);
+        g_device->BindViewport(cmd, 0, 0, (float)frame_width, (float)frame_height);
 
-        blast::Rect rect;
-        rect.left = 0;
-        rect.top = 0;
-        rect.right = frame_width;
-        rect.bottom = frame_height;
-        g_device->BindScissorRects(cmd, 1, &rect);
+        g_device->BindScissor(cmd, 0, 0, frame_width, frame_height);
 
         g_device->BindPipeline(cmd, g_pipeline);
 
@@ -194,28 +190,29 @@ int main() {
         g_device->DrawIndexed(cmd, 6, 0, 0);
 
         g_device->RenderPassEnd(cmd);
+
         g_device->SubmitAllCommandBuffer();
     }
     glfwDestroyWindow(window);
     glfwTerminate();
 
-    g_device->DestroySampler(g_sampler);
+    SAFE_DELETE(g_sampler);
 
-    g_device->DestroyTexture(g_texture);
+    SAFE_DELETE(g_texture);
 
-    g_device->DestroyBuffer(g_mesh_index_buffer);
+    SAFE_DELETE(g_mesh_index_buffer);
 
-    g_device->DestroyBuffer(g_mesh_vertex_buffer);
+    SAFE_DELETE(g_mesh_vertex_buffer);
 
-    g_device->DestroyShader(g_vert_shader);
+    SAFE_DELETE(g_vert_shader);
 
-    g_device->DestroyShader(g_frag_shader);
+    SAFE_DELETE(g_frag_shader);
 
     if (g_pipeline) {
-        g_device->DestroyPipeline(g_pipeline);
+        SAFE_DELETE(g_pipeline);
     }
 
-    g_device->DestroySwapChain(g_swapchain);
+    SAFE_DELETE(g_swapchain);
 
     SAFE_DELETE(g_device);
 
@@ -263,7 +260,7 @@ void RefreshSwapchain(void* window, uint32_t width, uint32_t height) {
     rasterizer_state.fill_mode = blast::FILL_SOLID;
 
     if (g_pipeline) {
-        g_device->DestroyPipeline(g_pipeline);
+        SAFE_DELETE(g_pipeline);
     }
 
     blast::GfxPipelineDesc pipeline_desc;
